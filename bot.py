@@ -7,7 +7,7 @@ from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # Токен вашого бота
-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+BOT_TOKEN = "1234567890:ABCdefGHIjklMNOpqrsTUVwxyZ"
 
 logging.basicConfig(level=logging.INFO)
 
