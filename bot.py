@@ -30,7 +30,6 @@ def init_db():
             last_bonus TEXT
         )
     """)
-    # Перевірка та оновлення колонок у старих базах даних
     cursor.execute("PRAGMA table_info(users)")
     columns = [column[1] for column in cursor.fetchall()]
     if "first_name" not in columns:
@@ -157,7 +156,6 @@ async def handle_bonus(message: types.Message):
         await message.answer(f"⏳ Ви вже отримували бонусне засідання! Спробуйте знову через **{left_minutes} хв.**", parse_mode="Markdown")
         return
 
-    # Нараховуємо 500 бурмалд і оновлюємо час
     cursor.execute("UPDATE users SET balance = balance + 500, last_bonus = ? WHERE user_id = ?", (now.isoformat(), user_id))
     conn.commit()
     conn.close()
@@ -188,7 +186,6 @@ async def handle_giveburmalda(message: types.Message):
 
     args = message.text.split()
     
-    # Видача собі: видатибурмалду [сума]
     if len(args) == 2:
         try:
             amount = float(args[1])
@@ -202,7 +199,6 @@ async def handle_giveburmalda(message: types.Message):
         await message.answer(f"✅ Ви нарахували собі **{amount:.2f} бурмалд**!\nНовий баланс: **{new_bal:.2f} бурмалд**", parse_mode="Markdown")
         return
 
-    # Видача іншому: видатибурмалду [ID] [сума]
     if len(args) >= 3 and args[1].isdigit():
         target_id = int(args[1])
         try:
@@ -294,6 +290,7 @@ async def cmd_balance_text(message: types.Message):
     await handle_balance(message)
 
 
+# ОСЬ ТУТ ДОДАНО РЕЄСТРАЦІЮ КОМАНДИ БОНУС:
 @dp.message(Command("bonus"))
 async def cmd_bonus_slash(message: types.Message):
     await handle_bonus(message)
