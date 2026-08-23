@@ -28,7 +28,6 @@ def init_db():
             balance REAL DEFAULT 1000.0
         )
     """)
-    # Автоматична міграція: додаємо колонку first_name, якщо її немає в старій БД
     cursor.execute("PRAGMA table_info(users)")
     columns = [column[1] for column in cursor.fetchall()]
     if "first_name" not in columns:
@@ -96,65 +95,90 @@ def create_game_keyboard(user_id: int, reveal_all=False):
         
     return builder.as_markup()
 
-# --- Хендлери команд ---
+# --- Логіка команд українською ---
 
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message):
+async def handle_start(message: types.Message):
     update_user_info(message.from_user)
     balance = get_balance(message.from_user.id)
     text = (
-        f"👋 Вітаємо в грі **Міни**!\n\n"
-        f"💵 Ваш баланс: **{balance:.2f} грн**\n\n"
-        f"📜 **Команди:**\n"
-        f"🔹 `/mine [ставка]` — Почати нову гру\n"
-        f"🔹 `/leader` або **топ** — Таблиця лідерів\n"
-        f"🔹 `/start` — Баланс та меню\n\n"
-        f"👑 **Адмін:** `/give [ID] [сума]`"
+        f"👋 Вітаємо у світі **Бурмалд**!\n\n"
+        f"💵 Ваш баланс: **{balance:.2f} бурмалд**\n\n"
+        f"📜 Напишіть слово **команди**, щоб переглянути список доступних команд."
     )
     await message.answer(text, parse_mode="Markdown")
 
-@dp.message(Command("give"))
-async def cmd_give(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ У вас немає прав адміна!")
-        return
+async def handle_commands(message: types.Message):
+    text = (
+        f"📜 **Список команд бота:**\n\n"
+        f"🔹 **команди** — Подивитися список команд\n"
+        f"🔹 **бурмалдмина [ставка]** — Грати в бурмалдмину (наприклад: `бурмалдмина 50`)\n"
+        f"🔹 **топ** — Таблиця лідерів\n"
+        f"🔹 **баланс** — Перевірити баланс\n\n"
+        f"👑 **Адмін-команди:**\n"
+        f"• `видатибурмалду [сума]` — собі\n"
+        f"• `видатибурмалду [ID] [сума]` — іншому гравцю"
+    )
+    await message.answer(text, parse_mode="Markdown")
 
-    args = message.text.split()
-    if len(args) < 3 or not args[1].isdigit():
-        await message.answer("❌ Формат: `/give [ID] [сума]`", parse_mode="Markdown")
-        return
+async def handle_balance(message: types.Message):
+    update_user_info(message.from_user)
+    balance = get_balance(message.from_user.id)
+    await message.answer(f"💵 Ваш поточний баланс: **{balance:.2f} бурмалд**", parse_mode="Markdown")
 
-    target_id = int(args[1])
-    try:
-        amount = float(args[2])
-    except ValueError:
-        await message.answer("❌ Введіть коректну суму!")
-        return
-
-    update_balance(target_id, amount)
-    new_bal = get_balance(target_id)
-    await message.answer(f"✅ Нараховано **{amount:.2f} грн** користувачу `{target_id}`!\nНовий баланс: **{new_bal:.2f} грн**", parse_mode="Markdown")
-
-@dp.message(Command("leader", "top"))
-@dp.message(F.text.lower().in_(["топ", "top", "топчик", "лідери"]))
-async def cmd_leader(message: types.Message):
+async def handle_top(message: types.Message):
     leaders = get_top_leaders()
     if not leaders:
         await message.answer("🏆 Таблиця лідерів порожня!")
         return
 
-    text = "🏆 **Таблиця лідерів:**\n\n"
+    text = "🏆 **Таблиця лідерів (Бурмазди):**\n\n"
     medals = ["🥇", "🥈", "🥉"]
     
     for idx, (first_name, username, balance) in enumerate(leaders, 1):
         medal = medals[idx - 1] if idx <= 3 else f"{idx}."
         name = f"@{username}" if username else (first_name or "Гравець")
-        text += f"{medal} **{name}** — {balance:.2f} грн\n"
+        text += f"{medal} **{name}** — {balance:.2f} бурмалд\n"
 
     await message.answer(text, parse_mode="Markdown")
 
-@dp.message(Command("mine"))
-async def cmd_mine(message: types.Message):
+async def handle_giveburmalda(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ У вас немає прав адміна!")
+        return
+
+    args = message.text.split()
+    
+    # Видача собі: видатибурмалду [сума]
+    if len(args) == 2:
+        try:
+            amount = float(args[1])
+        except ValueError:
+            await message.answer("❌ Введіть коректну суму!")
+            return
+        
+        target_id = message.from_user.id
+        update_balance(target_id, amount)
+        new_bal = get_balance(target_id)
+        await message.answer(f"✅ Ви нарахували собі **{amount:.2f} бурмалд**!\nНовий баланс: **{new_bal:.2f} бурмалд**", parse_mode="Markdown")
+        return
+
+    # Видача іншому: видатибурмалду [ID] [сума]
+    if len(args) >= 3 and args[1].isdigit():
+        target_id = int(args[1])
+        try:
+            amount = float(args[2])
+        except ValueError:
+            await message.answer("❌ Введіть коректну суму!")
+            return
+
+        update_balance(target_id, amount)
+        new_bal = get_balance(target_id)
+        await message.answer(f"✅ Нараховано **{amount:.2f} бурмалд** користувачу `{target_id}`!\nНовий баланс: **{new_bal:.2f} бурмалд**", parse_mode="Markdown")
+        return
+
+    await message.answer("❌ Формат:\nДля себе: `видатибурмалду [сума]`\nДля іншого: `видатибурмалду [ID] [сума]`", parse_mode="Markdown")
+
+async def handle_burmaldmine(message: types.Message):
     user_id = message.from_user.id
     update_user_info(message.from_user)
     
@@ -164,14 +188,14 @@ async def cmd_mine(message: types.Message):
 
     args = message.text.split()
     if len(args) < 2 or not args[1].isdigit():
-        await message.answer("❌ Вкажіть суму ставки. Наприклад: `/mine 50`", parse_mode="Markdown")
+        await message.answer("❌ Вкажіть ставку. Наприклад: `бурмалдмина 50`", parse_mode="Markdown")
         return
 
     bet = float(args[1])
     balance = get_balance(user_id)
 
     if bet <= 0 or bet > balance:
-        await message.answer(f"❌ Некоректна ставка або недостатньо коштів! Баланс: {balance:.2f} грн")
+        await message.answer(f"❌ Некоректна ставка або недостатньо бурмалд! Баланс: {balance:.2f}")
         return
 
     update_balance(user_id, -bet)
@@ -191,14 +215,73 @@ async def cmd_mine(message: types.Message):
     }
 
     text = (
-        f"🎮 **Гра розпочата!**\n\n"
-        f"💰 Ставка: **{bet:.2f} грн**\n"
+        f"🎮 **Бурмалдмину розпочато!**\n\n"
+        f"💰 Ставка: **{bet:.2f} бурмалд**\n"
         f"💣 Мін: **{mines_count}**\n"
         f"📈 Початковий коефіцієнт: **x{initial_multiplier:.2f}**\n"
-        f"💵 Виграш: **{(bet * initial_multiplier):.2f} грн**"
+        f"💵 Виграш: **{(bet * initial_multiplier):.2f} бурмалд**"
     )
     
     await message.answer(text, reply_markup=create_game_keyboard(user_id), parse_mode="Markdown")
+
+
+# --- Реєстрація обробників (слова українською та стандартні слеші) ---
+
+@dp.message(Command("start"))
+async def cmd_start_slash(message: types.Message):
+    await handle_start(message)
+
+@dp.message(F.text.casefold().in_({"старт", "start"}))
+async def cmd_start_text(message: types.Message):
+    await handle_start(message)
+
+
+@dp.message(Command("commands"))
+async def cmd_commands_slash(message: types.Message):
+    await handle_commands(message)
+
+@dp.message(F.text.casefold().in_({"команди", "commands"}))
+async def cmd_commands_text(message: types.Message):
+    await handle_commands(message)
+
+
+@dp.message(Command("balance"))
+async def cmd_balance_slash(message: types.Message):
+    await handle_balance(message)
+
+@dp.message(F.text.casefold().in_({"баланс", "balance"}))
+async def cmd_balance_text(message: types.Message):
+    await handle_balance(message)
+
+
+@dp.message(Command("top"))
+async def cmd_top_slash(message: types.Message):
+    await handle_top(message)
+
+@dp.message(F.text.casefold().in_({"топ", "top"}))
+async def cmd_top_text(message: types.Message):
+    await handle_top(message)
+
+
+@dp.message(Command("giveburmalda"))
+async def cmd_give_slash(message: types.Message):
+    await handle_giveburmalda(message)
+
+@dp.message(F.text.casefold().startswith(("видатибурмалду", "giveburmalda")))
+async def cmd_give_text(message: types.Message):
+    await handle_giveburmalda(message)
+
+
+@dp.message(Command("burmaldmine"))
+async def cmd_mine_slash(message: types.Message):
+    await handle_burmaldmine(message)
+
+@dp.message(F.text.casefold().startswith(("бурмалдмина", "burmaldmine")))
+async def cmd_mine_text(message: types.Message):
+    await handle_burmaldmine(message)
+
+
+# --- Callback-запити (кнопки) ---
 
 @dp.callback_query(F.data.startswith("cell_"))
 async def process_cell_click(callback: types.CallbackQuery):
@@ -221,8 +304,8 @@ async def process_cell_click(callback: types.CallbackQuery):
         
         await callback.message.edit_text(
             f"💥 **БУМ! Ви натрапили на міну!**\n\n"
-            f"❌ Втрачено: **{bet:.2f} грн**\n"
-            f"💵 Баланс: **{get_balance(user_id):.2f} грн**",
+            f"❌ Втрачено: **{bet:.2f} бурмалд**\n"
+            f"💵 Баланс: **{get_balance(user_id):.2f} бурмалд**",
             reply_markup=markup,
             parse_mode="Markdown"
         )
@@ -243,8 +326,8 @@ async def process_cell_click(callback: types.CallbackQuery):
         await callback.message.edit_text(
             f"🎉 **НЕЙМОВІРНО! Ви відкрили всі безпечні клітинки!**\n\n"
             f"🏆 Множник: **x{game['multiplier']:.2f}**\n"
-            f"💰 Виграш: **+{win_amount:.2f} грн**\n"
-            f"💵 Баланс: **{get_balance(user_id):.2f} грн**",
+            f"💰 Виграш: **+{win_amount:.2f} бурмалд**\n"
+            f"💵 Баланс: **{get_balance(user_id):.2f} бурмалд**",
             reply_markup=markup,
             parse_mode="Markdown"
         )
@@ -253,10 +336,10 @@ async def process_cell_click(callback: types.CallbackQuery):
     win_amount = game["bet"] * game["multiplier"]
     text = (
         f"💎 **Безпечно!**\n\n"
-        f"💰 Ставка: **{game['bet']:.2f} грн**\n"
+        f"💰 Ставка: **{game['bet']:.2f} бурмалд**\n"
         f"💣 Мін: **{game['mines_count']}**\n"
         f"📈 Множник: **x{game['multiplier']:.2f}** (+0.25)\n"
-        f"💵 Виграш: **{win_amount:.2f} грн**"
+        f"💵 Виграш: **{win_amount:.2f} бурмалд**"
     )
     
     await callback.message.edit_text(text, reply_markup=create_game_keyboard(user_id), parse_mode="Markdown")
@@ -280,8 +363,8 @@ async def process_cashout(callback: types.CallbackQuery):
     await callback.message.edit_text(
         f"💰 **Виграш забрано!**\n\n"
         f"📈 Множник: **x{multiplier:.2f}**\n"
-        f"💵 Забрано: **+{win_amount:.2f} грн**\n"
-        f"💳 Баланс: **{get_balance(user_id):.2f} грн**",
+        f"💵 Забрано: **+{win_amount:.2f} бурмалд**\n"
+        f"💳 Баланс: **{get_balance(user_id):.2f} бурмалд**",
         reply_markup=markup,
         parse_mode="Markdown"
     )
@@ -302,7 +385,6 @@ async def start_web_server():
 async def main():
     init_db()
     await start_web_server()
-    # Скидаємо можливі старі вебхуки/сесії перед запуском
     await bot.delete_webhook(drop_pending_updates=True)
     print("Бот запущений!")
     await dp.start_polling(bot)
