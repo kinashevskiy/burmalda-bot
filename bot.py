@@ -195,7 +195,6 @@ async def handle_give_burmalda(message: types.Message):
         await message.reply("❌ Не можна передавати бурмалди ботам!")
         return
 
-    # Оновлюємо дані отримувача в базі, щоб він там з'явився
     update_user_info(target_user)
 
     args = message.text.split()
@@ -218,7 +217,6 @@ async def handle_give_burmalda(message: types.Message):
         await message.reply(f"❌ У вас недостатньо коштів! Ваш баланс: {sender_balance:.2f} бурмалд.")
         return
 
-    # Здійснюємо транзакцію
     update_balance(sender_id, -amount)
     update_balance(target_id, amount)
 
@@ -294,7 +292,8 @@ async def handle_burmaldmine(message: types.Message):
 
     update_balance(user_id, -bet)
 
-    mines_count = random.randint(8, 15)
+    # Встановлюємо фіксовану кількість мін рівною 9
+    mines_count = 9
     initial_multiplier = 1.25
 
     board = [True] * mines_count + [False] * (25 - mines_count)
@@ -366,7 +365,6 @@ async def cmd_give_text(message: types.Message):
     await handle_giveburmalda(message)
 
 
-# Обробник команди передачі бурмалд через текст або команду /передати
 @dp.message(Command("передати"))
 async def cmd_pereдати_slash(message: types.Message):
     await handle_give_burmalda(message)
