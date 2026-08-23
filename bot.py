@@ -53,13 +53,15 @@ def update_user_info(user: types.User):
     conn.commit()
     conn.close()
 
-def get_balance(user_id: int) -> float:
+def get_user_data(user_id: int):
     conn = sqlite3.connect("burmalda.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT balance, last_bonus FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
     conn.close()
-    return row[0] if row else 1000.0
+    if row:
+        return row[0], row[1]
+    return 1000.0, None
 
 def update_balance(user_id: int, amount: float):
     conn = sqlite3.connect("burmalda.db")
@@ -75,6 +77,33 @@ def get_top_leaders(limit=10):
     rows = cursor.fetchall()
     conn.close()
     return rows
+
+# --- Перевірка доступності бонуса ---
+def check_bonus_available(last_bonus_str) -> bool:
+    if not last_bonus_str:
+        return True
+    last_bonus_time = datetime.fromisoformat(last_bonus_str)
+    next_available = last_bonus_time + timedelta(hours=1)
+    return datetime.now() >= next_available
+
+def get_balance_text_and_markup(user_id: int):
+    balance, last_bonus = get_user_data(user_id)
+    is_bonus_ready = check_bonus_available(last_bonus)
+
+    text = f"💵 Ваш поточний баланс: **{balance:.2f} бурмалд**"
+    
+    builder = InlineKeyboardBuilder()
+    if is_bonus_ready:
+        builder.button(text="🎁 Отримати бонус (500 💵)", callback_data="claim_bonus")
+        text += "\n\n🎁 Вам доступний щогодинний бонус!"
+    else:
+        last_bonus_time = datetime.fromisoformat(last_bonus)
+        next_available = last_bonus_time + timedelta(hours=1)
+        diff = next_available - datetime.now()
+        left_minutes = int(diff.total_seconds() // 60) + 1
+        text += f"\n\n⏳ Наступний бонус через: **{left_minutes} хв.**"
+
+    return text, builder.as_markup()
 
 # --- Стан ігор ---
 games = {}
@@ -103,7 +132,7 @@ def create_game_keyboard(user_id: int, reveal_all=False):
 
 async def handle_start(message: types.Message):
     update_user_info(message.from_user)
-    balance = get_balance(message.from_user.id)
+    balance, _ = get_user_data(message.from_user.id)
     text = (
         f"👋 Вітаємо у світі **Бурмалд**!\n\n"
         f"💵 Ваш баланс: **{balance:.2f} бурмалд**\n\n"
@@ -115,8 +144,7 @@ async def handle_commands(message: types.Message):
     text = (
         f"📜 **Список команд бота:**\n\n"
         f"🔹 **команди** — Подивитися список команд\n"
-        f"🔹 **баланс** — Перевірити баланс\n"
-        f"🔹 **бонус** — Отримати 500 бурмалд (раз на годину)\n"
+        f"🔹 **баланс** — Перевірити баланс та отримати бонус\n"
         f"🔹 **бурмалдмина [ставка]** — Грати в бурмалдмину (наприклад: `бурмалдмина 50`)\n"
         f"🔹 **топ** — Таблиця лідерів\n\n"
         f"👑 **Адмін-команди:**\n"
@@ -127,41 +155,8 @@ async def handle_commands(message: types.Message):
 
 async def handle_balance(message: types.Message):
     update_user_info(message.from_user)
-    balance = get_balance(message.from_user.id)
-    await message.answer(f"💵 Ваш поточний баланс: **{balance:.2f} бурмалд**", parse_mode="Markdown")
-
-async def handle_bonus(message: types.Message):
-    user_id = message.from_user.id
-    update_user_info(message.from_user)
-
-    conn = sqlite3.connect("burmalda.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT last_bonus FROM users WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    
-    now = datetime.now()
-    can_take = True
-    left_minutes = 0
-
-    if row and row[0]:
-        last_bonus_time = datetime.fromisoformat(row[0])
-        next_available = last_bonus_time + timedelta(hours=1)
-        if now < next_available:
-            can_take = False
-            diff = next_available - now
-            left_minutes = int(diff.total_seconds() // 60) + 1
-
-    if not can_take:
-        conn.close()
-        await message.answer(f"⏳ Ви вже отримували бонусне засідання! Спробуйте знову через **{left_minutes} хв.**", parse_mode="Markdown")
-        return
-
-    cursor.execute("UPDATE users SET balance = balance + 500, last_bonus = ? WHERE user_id = ?", (now.isoformat(), user_id))
-    conn.commit()
-    conn.close()
-
-    new_balance = get_balance(user_id)
-    await message.answer(f"🎁 Ви успішно отримали щогодинний бонус — **500 бурмалд**!\n💵 Новий баланс: **{new_balance:.2f} бурмалд**", parse_mode="Markdown")
+    text, markup = get_balance_text_and_markup(message.from_user.id)
+    await message.answer(text, reply_markup=markup, parse_mode="Markdown")
 
 async def handle_top(message: types.Message):
     leaders = get_top_leaders()
@@ -195,8 +190,8 @@ async def handle_giveburmalda(message: types.Message):
         
         target_id = message.from_user.id
         update_balance(target_id, amount)
-        new_bal = get_balance(target_id)
-        await message.answer(f"✅ Ви нарахували собі **{amount:.2f} бурмалд**!\nНовий баланс: **{new_bal:.2f} бурмалд**", parse_mode="Markdown")
+        balance, _ = get_user_data(target_id)
+        await message.answer(f"✅ Ви нарахували собі **{amount:.2f} бурмалд**!\nНовий баланс: **{balance:.2f} бурмалд**", parse_mode="Markdown")
         return
 
     if len(args) >= 3 and args[1].isdigit():
@@ -208,8 +203,8 @@ async def handle_giveburmalda(message: types.Message):
             return
 
         update_balance(target_id, amount)
-        new_bal = get_balance(target_id)
-        await message.answer(f"✅ Нараховано **{amount:.2f} бурмалд** користувачу `{target_id}`!\nНовий баланс: **{new_bal:.2f} бурмалд**", parse_mode="Markdown")
+        balance, _ = get_user_data(target_id)
+        await message.answer(f"✅ Нараховано **{amount:.2f} бурмалд** користувачу `{target_id}`!\nНовий баланс: **{balance:.2f} бурмалд**", parse_mode="Markdown")
         return
 
     await message.answer("❌ Формат:\nДля себе: `видатибурмалду [сума]`\nДля іншого: `видатибурмалду [ID] [сума]`", parse_mode="Markdown")
@@ -228,7 +223,7 @@ async def handle_burmaldmine(message: types.Message):
         return
 
     bet = float(args[1])
-    balance = get_balance(user_id)
+    balance, _ = get_user_data(user_id)
 
     if bet <= 0 or bet > balance:
         await message.answer(f"❌ Некоректна ставка або недостатньо бурмалд! Баланс: {balance:.2f}")
@@ -290,16 +285,6 @@ async def cmd_balance_text(message: types.Message):
     await handle_balance(message)
 
 
-# ОСЬ ТУТ ДОДАНО РЕЄСТРАЦІЮ КОМАНДИ БОНУС:
-@dp.message(Command("bonus"))
-async def cmd_bonus_slash(message: types.Message):
-    await handle_bonus(message)
-
-@dp.message(F.text.casefold().in_({"бонус", "bonus"}))
-async def cmd_bonus_text(message: types.Message):
-    await handle_bonus(message)
-
-
 @dp.message(Command("top"))
 async def cmd_top_slash(message: types.Message):
     await handle_top(message)
@@ -327,7 +312,30 @@ async def cmd_mine_text(message: types.Message):
     await handle_burmaldmine(message)
 
 
-# --- Callback-запити (кнопки гри) ---
+# --- Callback-запити (кнопки гри та бонуса) ---
+
+@dp.callback_query(F.data == "claim_bonus")
+async def process_claim_bonus(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    _, last_bonus = get_user_data(user_id)
+
+    if not check_bonus_available(last_bonus):
+        await callback.answer("⏳ Цей бонус ще недоступний!", show_alert=True)
+        return
+
+    # Нараховуємо бонус і оновлюємо час
+    now = datetime.now()
+    conn = sqlite3.connect("burmalda.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET balance = balance + 500, last_bonus = ? WHERE user_id = ?", (now.isoformat(), user_id))
+    conn.commit()
+    conn.close()
+
+    await callback.answer("🎉 Ви успішно отримали 500 бурмалд!", show_alert=False)
+    
+    # Оновлюємо текст повідомлення з балансом та ховаємо кнопку
+    text, markup = get_balance_text_and_markup(user_id)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="Markdown")
 
 @dp.callback_query(F.data.startswith("cell_"))
 async def process_cell_click(callback: types.CallbackQuery):
@@ -347,11 +355,12 @@ async def process_cell_click(callback: types.CallbackQuery):
         bet = game["bet"]
         markup = create_game_keyboard(user_id, reveal_all=True)
         del games[user_id]
+        balance, _ = get_user_data(user_id)
         
         await callback.message.edit_text(
             f"💥 **БУМ! Ви натрапили на міну!**\n\n"
             f"❌ Втрачено: **{bet:.2f} бурмалд**\n"
-            f"💵 Баланс: **{get_balance(user_id):.2f} бурмалд**",
+            f"💵 Баланс: **{balance:.2f} бурмалд**",
             reply_markup=markup,
             parse_mode="Markdown"
         )
@@ -368,12 +377,13 @@ async def process_cell_click(callback: types.CallbackQuery):
         update_balance(user_id, win_amount)
         markup = create_game_keyboard(user_id, reveal_all=True)
         del games[user_id]
+        balance, _ = get_user_data(user_id)
 
         await callback.message.edit_text(
             f"🎉 **НЕЙМОВІРНО! Ви відкрили всі безпечні клітинки!**\n\n"
             f"🏆 Множник: **x{game['multiplier']:.2f}**\n"
             f"💰 Виграш: **+{win_amount:.2f} бурмалд**\n"
-            f"💵 Баланс: **{get_balance(user_id):.2f} бурмалд**",
+            f"💵 Баланс: **{balance:.2f} бурмалд**",
             reply_markup=markup,
             parse_mode="Markdown"
         )
@@ -405,12 +415,13 @@ async def process_cashout(callback: types.CallbackQuery):
     markup = create_game_keyboard(user_id, reveal_all=True)
     multiplier = game["multiplier"]
     del games[user_id]
+    balance, _ = get_user_data(user_id)
 
     await callback.message.edit_text(
         f"💰 **Виграш забрано!**\n\n"
         f"📈 Множник: **x{multiplier:.2f}**\n"
         f"💵 Забрано: **+{win_amount:.2f} бурмалд**\n"
-        f"💳 Баланс: **{get_balance(user_id):.2f} бурмалд**",
+        f"💳 Баланс: **{balance:.2f} бурмалд**",
         reply_markup=markup,
         parse_mode="Markdown"
     )
