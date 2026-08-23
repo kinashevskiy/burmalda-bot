@@ -7,10 +7,13 @@ from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # Токен вашого бота
-BOT_TOKEN = "1234567890:ABCdefGHIjklMNOpqrsTUVwxyZ"
+BOT_TOKEN = "8814469553:AAEhx7dTIpsk_o-6v-37PYnxu3sByPsCkz4"
+
+# Ваш ID адміна в Telegram
+ADMIN_ID = 8259900140
 
 logging.basicConfig(level=logging.INFO)
-ADMIN_ID = 8259900140
+
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
@@ -48,6 +51,7 @@ def get_balance(user_id: int) -> float:
     cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
     if row is None:
+        conn.close()
         return 1000.0
     conn.close()
     return row[0]
@@ -67,7 +71,7 @@ def get_top_leaders(limit=10):
     conn.close()
     return rows
 
-# --- Стан поточних ігор у пам'яті ---
+# --- Стан поточних ігор ---
 games = {}
 
 def create_game_keyboard(user_id: int, reveal_all=False):
@@ -93,7 +97,7 @@ def create_game_keyboard(user_id: int, reveal_all=False):
         
     return builder.as_markup()
 
-# --- Обробка команд та повідомлень ---
+# --- Команди бота ---
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -104,17 +108,40 @@ async def cmd_start(message: types.Message):
         f"💵 Ваш баланс: **{balance:.2f} грн**\n\n"
         f"📜 **Список команд:**\n"
         f"🔹 `/mine [ставка]` — Почати нову гру (наприклад: `/mine 50`)\n"
-        f"🔹 `/leader` або слово **топ** — Переглянути топ гравців\n"
-        f"🔹 `/start` — Подивитися баланс і меню"
+        f"🔹 `/leader` або **топ** — Таблиця лідерів\n"
+        f"🔹 `/start` — Подивитися баланс\n\n"
+        f"👑 **Адмін-команди:**\n"
+        f"🔸 `/give [ID] [сума]` — Видати токени гравцеві"
     )
     await message.answer(text, parse_mode="Markdown")
 
-# Перегляд топу за командою /leader, /top або просто словами "топ" / "top"
+# Адмін-команда для видачі токенів
+@dp.message(Command("give"))
+async def cmd_give(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ У вас немає прав адміна!")
+        return
+
+    args = message.text.split()
+    if len(args) < 3 or not args[1].isdigit():
+        await message.answer("❌ Формат команди: `/give [ID_користувача] [сума]`\nПриклад: `/give 8259900140 5000`", parse_mode="Markdown")
+        return
+
+    target_id = int(args[1])
+    try:
+        amount = float(args[2])
+    except ValueError:
+        await message.answer("❌ Введіть коректну суму!")
+        return
+
+    update_balance(target_id, amount)
+    new_bal = get_balance(target_id)
+    await message.answer(f"✅ Успішно нараховано **{amount:.2f} грн** користувачу `{target_id}`!\nНовий баланс: **{new_bal:.2f} грн**", parse_mode="Markdown")
+
 @dp.message(Command("leader", "top"))
 @dp.message(F.text.lower().in_(["топ", "top", "топчик", "лідери"]))
 async def cmd_leader(message: types.Message):
     leaders = get_top_leaders()
-    
     if not leaders:
         await message.answer("🏆 Таблиця лідерів поки що порожня!")
         return
@@ -154,10 +181,8 @@ async def cmd_mine(message: types.Message):
         await message.answer(f"❌ Недостатньо коштів! Ваш баланс: {balance:.2f} грн")
         return
 
-    # Знімаємо ставку
     update_balance(user_id, -bet)
 
-    # Налаштування гри: від 8 до 15 мін, початковий X = 1.25
     mines_count = random.randint(8, 15)
     initial_multiplier = 1.25
 
@@ -196,7 +221,6 @@ async def process_cell_click(callback: types.CallbackQuery):
         await callback.answer("Ця клітинка вже відкрита!")
         return
 
-    # Програш
     if game["board"][cell_index]:
         bet = game["bet"]
         markup = create_game_keyboard(user_id, reveal_all=True)
@@ -211,14 +235,12 @@ async def process_cell_click(callback: types.CallbackQuery):
         )
         return
 
-    # Безпечна клітинка
     game["revealed"][cell_index] = True
-    game["multiplier"] += 0.25  # Додаємо +0.25 до X
+    game["multiplier"] += 0.25
 
     revealed_safe_count = sum(1 for i in range(25) if game["revealed"][i] and not game["board"][i])
     total_safe_cells = 25 - game["mines_count"]
 
-    # Автоматична перемога
     if revealed_safe_count == total_safe_cells:
         win_amount = game["bet"] * game["multiplier"]
         update_balance(user_id, win_amount)
@@ -244,7 +266,10 @@ async def process_cell_click(callback: types.CallbackQuery):
         f"💵 Можна забрати: **{win_amount:.2f} грн**"
     )
     
-    await callback.message.edit_text(text, reply_markup=create_game_keyboard(user_id), parse_mode="Markdown")
+    await message_or_callback_edit(callback, text, create_game_keyboard(user_id))
+
+async def message_or_callback_edit(callback: types.CallbackQuery, text: str, markup):
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="Markdown")
     await callback.answer()
 
 @dp.callback_query(F.data == "cashout")
