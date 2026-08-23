@@ -93,6 +93,8 @@ def create_game_keyboard(user_id: int, reveal_all=False):
         
     return builder.as_markup()
 
+# --- Обробка команд та повідомлень ---
+
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     update_user_info(message.from_user)
@@ -100,12 +102,16 @@ async def cmd_start(message: types.Message):
     text = (
         f"👋 Вітаємо в грі **Міни**!\n\n"
         f"💵 Ваш баланс: **{balance:.2f} грн**\n\n"
-        f"🔹 Щоб розпочати нову гру: `/mine [ставка]`\n"
-        f"🏆 Таблиця лідерів: `/leader`"
+        f"📜 **Список команд:**\n"
+        f"🔹 `/mine [ставка]` — Почати нову гру (наприклад: `/mine 50`)\n"
+        f"🔹 `/leader` або слово **топ** — Переглянути топ гравців\n"
+        f"🔹 `/start` — Подивитися баланс і меню"
     )
     await message.answer(text, parse_mode="Markdown")
 
+# Перегляд топу за командою /leader, /top або просто словами "топ" / "top"
 @dp.message(Command("leader", "top"))
+@dp.message(F.text.lower().in_(["топ", "top", "топчик", "лідери"]))
 async def cmd_leader(message: types.Message):
     leaders = get_top_leaders()
     
@@ -114,7 +120,6 @@ async def cmd_leader(message: types.Message):
         return
 
     text = "🏆 **Таблиця лідерів за балансом:**\n\n"
-    
     medals = ["🥇", "🥈", "🥉"]
     
     for idx, (first_name, username, balance) in enumerate(leaders, 1):
