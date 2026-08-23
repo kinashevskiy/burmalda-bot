@@ -8,8 +8,8 @@ from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-# Токен вашого бота
-BOT_TOKEN = "8814469553:AAEhx7dTIpsk_o-6v-37PYnxu3sByPsCkz4"
+# Новий токен вашого бота
+BOT_TOKEN = "8814469553:AAG414M7T8DGEuTOCa7uNi7b2LDdKGTSErw"
 
 # Ваш ID адміна в Telegram
 ADMIN_ID = 8259900140
@@ -310,7 +310,6 @@ async def start_web_server():
 
 async def main():
     init_db()
-    # Запускаємо сервер відкритих портів для Render
     await start_web_server()
     print("Бот успішно запущений!")
     await dp.start_polling(bot)
