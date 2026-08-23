@@ -3,6 +3,7 @@ import logging
 import os
 import random
 import sqlite3
+from datetime import datetime, timedelta
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
@@ -25,14 +26,18 @@ def init_db():
             user_id INTEGER PRIMARY KEY,
             username TEXT,
             first_name TEXT,
-            balance REAL DEFAULT 1000.0
+            balance REAL DEFAULT 1000.0,
+            last_bonus TEXT
         )
     """)
+    # Перевірка та оновлення колонок у старих базах даних
     cursor.execute("PRAGMA table_info(users)")
     columns = [column[1] for column in cursor.fetchall()]
     if "first_name" not in columns:
         cursor.execute("ALTER TABLE users ADD COLUMN first_name TEXT")
-    
+    if "last_bonus" not in columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN last_bonus TEXT")
+        
     conn.commit()
     conn.close()
 
@@ -111,9 +116,10 @@ async def handle_commands(message: types.Message):
     text = (
         f"📜 **Список команд бота:**\n\n"
         f"🔹 **команди** — Подивитися список команд\n"
+        f"🔹 **баланс** — Перевірити баланс\n"
+        f"🔹 **бонус** — Отримати 500 бурмалд (раз на годину)\n"
         f"🔹 **бурмалдмина [ставка]** — Грати в бурмалдмину (наприклад: `бурмалдмина 50`)\n"
-        f"🔹 **топ** — Таблиця лідерів\n"
-        f"🔹 **баланс** — Перевірити баланс\n\n"
+        f"🔹 **топ** — Таблиця лідерів\n\n"
         f"👑 **Адмін-команди:**\n"
         f"• `видатибурмалду [сума]` — собі\n"
         f"• `видатибурмалду [ID] [сума]` — іншому гравцю"
@@ -124,6 +130,40 @@ async def handle_balance(message: types.Message):
     update_user_info(message.from_user)
     balance = get_balance(message.from_user.id)
     await message.answer(f"💵 Ваш поточний баланс: **{balance:.2f} бурмалд**", parse_mode="Markdown")
+
+async def handle_bonus(message: types.Message):
+    user_id = message.from_user.id
+    update_user_info(message.from_user)
+
+    conn = sqlite3.connect("burmalda.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT last_bonus FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    
+    now = datetime.now()
+    can_take = True
+    left_minutes = 0
+
+    if row and row[0]:
+        last_bonus_time = datetime.fromisoformat(row[0])
+        next_available = last_bonus_time + timedelta(hours=1)
+        if now < next_available:
+            can_take = False
+            diff = next_available - now
+            left_minutes = int(diff.total_seconds() // 60) + 1
+
+    if not can_take:
+        conn.close()
+        await message.answer(f"⏳ Ви вже отримували бонусне засідання! Спробуйте знову через **{left_minutes} хв.**", parse_mode="Markdown")
+        return
+
+    # Нараховуємо 500 бурмалд і оновлюємо час
+    cursor.execute("UPDATE users SET balance = balance + 500, last_bonus = ? WHERE user_id = ?", (now.isoformat(), user_id))
+    conn.commit()
+    conn.close()
+
+    new_balance = get_balance(user_id)
+    await message.answer(f"🎁 Ви успішно отримали щогодинний бонус — **500 бурмалд**!\n💵 Новий баланс: **{new_balance:.2f} бурмалд**", parse_mode="Markdown")
 
 async def handle_top(message: types.Message):
     leaders = get_top_leaders()
@@ -225,7 +265,7 @@ async def handle_burmaldmine(message: types.Message):
     await message.answer(text, reply_markup=create_game_keyboard(user_id), parse_mode="Markdown")
 
 
-# --- Реєстрація обробників (слова українською та стандартні слеші) ---
+# --- Реєстрація обробників ---
 
 @dp.message(Command("start"))
 async def cmd_start_slash(message: types.Message):
@@ -252,6 +292,15 @@ async def cmd_balance_slash(message: types.Message):
 @dp.message(F.text.casefold().in_({"баланс", "balance"}))
 async def cmd_balance_text(message: types.Message):
     await handle_balance(message)
+
+
+@dp.message(Command("bonus"))
+async def cmd_bonus_slash(message: types.Message):
+    await handle_bonus(message)
+
+@dp.message(F.text.casefold().in_({"бонус", "bonus"}))
+async def cmd_bonus_text(message: types.Message):
+    await handle_bonus(message)
 
 
 @dp.message(Command("top"))
@@ -281,7 +330,7 @@ async def cmd_mine_text(message: types.Message):
     await handle_burmaldmine(message)
 
 
-# --- Callback-запити (кнопки) ---
+# --- Callback-запити (кнопки гри) ---
 
 @dp.callback_query(F.data.startswith("cell_"))
 async def process_cell_click(callback: types.CallbackQuery):
