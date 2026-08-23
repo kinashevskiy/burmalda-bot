@@ -1,7 +1,9 @@
 import asyncio
 import logging
+import os
 import random
 import sqlite3
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -266,10 +268,7 @@ async def process_cell_click(callback: types.CallbackQuery):
         f"💵 Можна забрати: **{win_amount:.2f} грн**"
     )
     
-    await message_or_callback_edit(callback, text, create_game_keyboard(user_id))
-
-async def message_or_callback_edit(callback: types.CallbackQuery, text: str, markup):
-    await callback.message.edit_text(text, reply_markup=markup, parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=create_game_keyboard(user_id), parse_mode="Markdown")
     await callback.answer()
 
 @dp.callback_query(F.data == "cashout")
@@ -296,8 +295,23 @@ async def process_cashout(callback: types.CallbackQuery):
         parse_mode="Markdown"
     )
 
+# --- Веб-сервер для задоволення вимог Render ---
+async def handle_ping(request):
+    return web.Response(text="OK - Bot is running")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+
 async def main():
     init_db()
+    # Запускаємо сервер відкритих портів для Render
+    await start_web_server()
     print("Бот успішно запущений!")
     await dp.start_polling(bot)
 
