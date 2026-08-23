@@ -10,7 +10,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 BOT_TOKEN = "1234567890:ABCdefGHIjklMNOpqrsTUVwxyZ"
 
 logging.basicConfig(level=logging.INFO)
-
+ADMIN_ID = 8259900140
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
