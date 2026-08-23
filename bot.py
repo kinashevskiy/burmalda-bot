@@ -146,7 +146,8 @@ async def handle_commands(message: types.Message):
         f"🔹 **команди** — Подивитися список команд\n"
         f"🔹 **баланс** — Перевірити баланс та отримати бонус\n"
         f"🔹 **бурмалдмина [ставка]** — Грати в бурмалдмину (наприклад: `бурмалдмина 50`)\n"
-        f"🔹 **топ** — Таблиця лідерів\n\n"
+        f"🔹 **топ** — Таблиця лідерів\n"
+        f"🔹 **передати [сума]** — Передати бурмалди гравцю через відповідь (reply) на його повідомлення\n\n"
         f"👑 **Адмін-команди:**\n"
         f"• `видатибурмалду [сума]` — собі\n"
         f"• `видатибурмалду [ID] [сума]` — іншому гравцю"
@@ -173,6 +174,63 @@ async def handle_top(message: types.Message):
         text += f"{medal} **{name}** — {balance:.2f} бурмалд\n"
 
     await message.answer(text, parse_mode="Markdown")
+
+# --- ПЕРЕДАЧА БУРМАЛД ЧЕРЕЗ ВІДПОВІДЬ ( REPLY ) ---
+async def handle_give_burmalda(message: types.Message):
+    update_user_info(message.from_user)
+    
+    if not message.reply_to_message:
+        await message.reply("⚠️ Щоб передати бурмалди, відповідайте (reply) цією командою на повідомлення гравця!")
+        return
+
+    sender_id = message.from_user.id
+    target_user = message.reply_to_message.from_user
+    target_id = target_user.id
+
+    if sender_id == target_id:
+        await message.reply("❌ Ви не можете передавати бурмалди самому собі!")
+        return
+
+    if target_user.is_bot:
+        await message.reply("❌ Не можна передавати бурмалди ботам!")
+        return
+
+    # Оновлюємо дані отримувача в базі, щоб він там з'явився
+    update_user_info(target_user)
+
+    args = message.text.split()
+    amount = None
+    for part in args:
+        try:
+            val = float(part)
+            if val > 0:
+                amount = val
+                break
+        except ValueError:
+            continue
+
+    if not amount:
+        await message.reply("❌ Вкажіть коректну суму для передачі. Приклад: `передати 50`", parse_mode="Markdown")
+        return
+
+    sender_balance, _ = get_user_data(sender_id)
+    if sender_balance < amount:
+        await message.reply(f"❌ У вас недостатньо коштів! Ваш баланс: {sender_balance:.2f} бурмалд.")
+        return
+
+    # Здійснюємо транзакцію
+    update_balance(sender_id, -amount)
+    update_balance(target_id, amount)
+
+    new_sender_balance, _ = get_user_data(sender_id)
+    target_name = target_user.first_name or "Гравець"
+
+    await message.reply(
+        f"✅ Успішна передача!\n"
+        f"👤 Ви передали **{amount:.2f} бурмалд** гравцю {target_name}!\n"
+        f"💰 Ваш залишок: **{new_sender_balance:.2f} бурмалд**",
+        parse_mode="Markdown"
+    )
 
 async def handle_giveburmalda(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -218,11 +276,16 @@ async def handle_burmaldmine(message: types.Message):
         return
 
     args = message.text.split()
-    if len(args) < 2 or not args[1].isdigit():
+    if len(args) < 2:
         await message.answer("❌ Вкажіть ставку. Наприклад: `бурмалдмина 50`", parse_mode="Markdown")
         return
 
-    bet = float(args[1])
+    try:
+        bet = float(args[1])
+    except ValueError:
+        await message.answer("❌ Введіть числову ставку!")
+        return
+
     balance, _ = get_user_data(user_id)
 
     if bet <= 0 or bet > balance:
@@ -303,6 +366,16 @@ async def cmd_give_text(message: types.Message):
     await handle_giveburmalda(message)
 
 
+# Обробник команди передачі бурмалд через текст або команду /передати
+@dp.message(Command("передати"))
+async def cmd_pereдати_slash(message: types.Message):
+    await handle_give_burmalda(message)
+
+@dp.message(F.text.casefold().startswith("передати"))
+async def cmd_pereдати_text(message: types.Message):
+    await handle_give_burmalda(message)
+
+
 @dp.message(Command("burmaldmine"))
 async def cmd_mine_slash(message: types.Message):
     await handle_burmaldmine(message)
@@ -323,7 +396,6 @@ async def process_claim_bonus(callback: types.CallbackQuery):
         await callback.answer("⏳ Цей бонус ще недоступний!", show_alert=True)
         return
 
-    # Нараховуємо бонус і оновлюємо час
     now = datetime.now()
     conn = sqlite3.connect("burmalda.db")
     cursor = conn.cursor()
@@ -333,7 +405,6 @@ async def process_claim_bonus(callback: types.CallbackQuery):
 
     await callback.answer("🎉 Ви успішно отримали 500 бурмалд!", show_alert=False)
     
-    # Оновлюємо текст повідомлення з балансом та ховаємо кнопку
     text, markup = get_balance_text_and_markup(user_id)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="Markdown")
 
