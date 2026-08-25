@@ -4,7 +4,6 @@ import os
 import random
 import sqlite3
 from datetime import datetime, timedelta
-from aiohttp import web
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -116,7 +115,6 @@ def get_balance_text_and_markup(user_id: int):
 
     return text, builder.as_markup()
 
-# Зберігаємо ігри у форматі: game_id (або owner_id) -> дані гри
 games = {}
 
 def create_game_keyboard(owner_id: int, viewer_id: int, reveal_all=False):
@@ -138,7 +136,6 @@ def create_game_keyboard(owner_id: int, viewer_id: int, reveal_all=False):
         builder.button(text=cashout_text, callback_data=f"cashout_{owner_id}")
         builder.adjust(5, 5, 5, 5, 5, 1)
         
-        # Якщо дивиться адмін, додаємо спеціальну адмін-кнопку під грою
         if viewer_id == ADMIN_ID:
             admin_btn_text = "👑 Подивитися міни (Адмін)" if lang == 'uk' else "👑 Посмотреть мины (Админ)"
             builder.button(text=admin_btn_text, callback_data=f"admin_peek_{owner_id}")
@@ -186,7 +183,7 @@ async def handle_commands(message: types.Message):
         if user_id == ADMIN_ID:
             text += (
                 "\n👑 **Адмін-можливості:**\n"
-                "• Під кожною грою (навіть чужою) у вас є кнопка «Подивитися міни», яка показує розташування у спливаючому вікні.\n"
+                "• Під кожною грою є кнопка «Подивитися міни» (у спливаючому вікні).\n"
                 "• `видати бурмалду [сума]`\n"
                 "• `видати бурмалду [ID] [сума]`"
             )
@@ -203,7 +200,7 @@ async def handle_commands(message: types.Message):
         if user_id == ADMIN_ID:
             text += (
                 "\n👑 **Админ-возможности:**\n"
-                "• Под каждой игрой у вас есть кнопка «Посмотреть мины» (во всплывающем окне).\n"
+                "• Под каждой игрой есть кнопка «Посмотреть мины» (во всплывающем окне).\n"
                 "• `видати бурмалду [сума]`\n"
                 "• `видати бурмалду [ID] [сума]`"
             )
@@ -341,7 +338,6 @@ async def handle_burmaldmine(message: types.Message):
         
     await message.answer(text, reply_markup=create_game_keyboard(user_id, user_id), parse_mode="Markdown")
 
-# Обробники
 @dp.message(Command("start"))
 async def c_start(m: types.Message): await handle_start(m)
 @dp.message(F.text.casefold().in_({"старт", "start"}))
@@ -448,7 +444,6 @@ async def cb_cell(callback: types.CallbackQuery):
     else:
         msg = f"💎 Безопасно!\nТекущий выигрыш: {win:.2f} бурмалди"
         
-    # Оновлюємо клавіатуру, щоб ігра продовжувалась для всіх
     await callback.message.edit_text(msg, reply_markup=create_game_keyboard(owner_id, user_id), parse_mode="Markdown")
     await callback.answer()
 
@@ -466,7 +461,6 @@ async def cb_admin_peek(callback: types.CallbackQuery):
     game = games[owner_id]
     board = game["board"]
     
-    # Збираємо координати мін (ряд, колонка)
     mine_coords = []
     for i, has_mine in enumerate(board):
         if has_mine:
@@ -475,7 +469,6 @@ async def cb_admin_peek(callback: types.CallbackQuery):
             mine_coords.append(f"({row}р, {col}к)")
             
     peek_text = "💣 МИНЫ: " + ", ".join(mine_coords)
-    # Показуємо міни ТІЛЬКИ адміну у спливаючому віконці, гра не зупиняється!
     await callback.answer(peek_text, show_alert=True)
 
 @dp.callback_query(F.data.startswith("cashout_"))
@@ -503,5 +496,12 @@ async def cb_cashout(callback: types.CallbackQuery):
         
     await callback.message.edit_text(msg, reply_markup=markup, parse_mode="Markdown")
 
-async def handle_ping(request):
-    return web.R
+async def main():
+    init_db()
+    await bot.delete_webhook(drop_pending_updates=True)
+    print("Бот запущений!")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+    
