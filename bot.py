@@ -543,7 +543,7 @@ async def process_cell_click(callback: types.CallbackQuery):
                 f"❌ Втрачено: **{bet:.2f} бурмалди**\n"
                 f"💵 Баланс: **{balance:.2f} бурмалди**",
                 reply_markup=markup,
-                parse_Mode="Markdown"
+                parse_mode="Markdown"
             )
         else:
             await callback.message.edit_text(
