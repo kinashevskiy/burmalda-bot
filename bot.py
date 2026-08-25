@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 import random
 import sqlite3
 from datetime import datetime, timedelta
@@ -137,7 +136,7 @@ def create_game_keyboard(owner_id: int, viewer_id: int, reveal_all=False):
         builder.adjust(5, 5, 5, 5, 5, 1)
         
         if viewer_id == ADMIN_ID:
-            admin_btn_text = "👑 Подивитися міни (Адмін)" if lang == 'uk' else "👑 Посмотреть мины (Админ)"
+            admin_btn_text = "👑 Подивитися міни (ЛС)" if lang == 'uk' else "👑 Посмотреть мины (ЛС)"
             builder.button(text=admin_btn_text, callback_data=f"admin_peek_{owner_id}")
             builder.adjust(5, 5, 5, 5, 5, 1, 1)
             
@@ -181,12 +180,7 @@ async def handle_commands(message: types.Message):
             "🔹 **мова** — Змінити мову інтерфейсу\n"
         )
         if user_id == ADMIN_ID:
-            text += (
-                "\n👑 **Адмін-можливості:**\n"
-                "• Під кожною грою є кнопка «Подивитися міни» (у спливаючому вікні).\n"
-                "• `видати бурмалду [сума]`\n"
-                "• `видати бурмалду [ID] [сума]`"
-            )
+            text += "\n👑 Під кожною грою є кнопка «Подивитися міни (ЛС)», яка надсилає поле вам у особисті повідомлення."
     else:
         text = (
             "📜 **Список команд бота:**\n\n"
@@ -198,12 +192,7 @@ async def handle_commands(message: types.Message):
             "🔹 **мова** — Изменить язык интерфейса\n"
         )
         if user_id == ADMIN_ID:
-            text += (
-                "\n👑 **Админ-возможности:**\n"
-                "• Под каждой игрой есть кнопка «Посмотреть мины» (во всплывающем окне).\n"
-                "• `видати бурмалду [сума]`\n"
-                "• `видати бурмалду [ID] [сума]`"
-            )
+            text += "\n👑 Под каждой игрой есть кнопка «Посмотреть мины (ЛС)», отправляющая поле вам в личные сообщения."
     await message.answer(text, parse_mode="Markdown")
 
 async def handle_balance(message: types.Message):
@@ -459,17 +448,25 @@ async def cb_admin_peek(callback: types.CallbackQuery):
         return
         
     game = games[owner_id]
-    board = game["board"]
     
-    mine_coords = []
-    for i, has_mine in enumerate(board):
-        if has_mine:
-            row = (i // 5) + 1
-            col = (i % 5) + 1
-            mine_coords.append(f"({row}р, {col}к)")
-            
-    peek_text = "💣 МИНЫ: " + ", ".join(mine_coords)
-    await callback.answer(peek_text, show_alert=True)
+    # Створюємо сітку з відкритими мінами та алмазами (як у кінці гри)
+    builder = InlineKeyboardBuilder()
+    for i in range(25):
+        text = "💣" if game["board"][i] else "💎"
+        builder.button(text=text, callback_data=f"dummy_{i}")
+    builder.adjust(5)
+    
+    try:
+        # Надсилаємо повноцінне поле ТІЛЬКИ ВАМ У ЛС
+        await bot.send_message(
+            ADMIN_ID,
+            f"👀 **АДМИН-РЕЖИМ (Расположение мин для игрока ID: {owner_id}):**",
+            reply_markup=builder.as_markup(),
+            parse_mode="Markdown"
+        )
+        await callback.answer("✅ Поле с мінами надіслано вам у особисті повідомлення (ЛС)!", show_alert=True)
+    except Exception:
+        await callback.answer("⚠️ Спочатку натисніть /start у особистих повідомленнях з ботом!", show_alert=True)
 
 @dp.callback_query(F.data.startswith("cashout_"))
 async def cb_cashout(callback: types.CallbackQuery):
