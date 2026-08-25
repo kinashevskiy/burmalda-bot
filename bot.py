@@ -116,27 +116,34 @@ def get_balance_text_and_markup(user_id: int):
 
     return text, builder.as_markup()
 
+# Зберігаємо ігри у форматі: game_id (або owner_id) -> дані гри
 games = {}
 
-def create_game_keyboard(user_id: int, reveal_all=False):
+def create_game_keyboard(owner_id: int, viewer_id: int, reveal_all=False):
     builder = InlineKeyboardBuilder()
-    game = games.get(user_id)
-    _, _, lang = get_user_data(user_id)
+    game = games.get(owner_id)
+    _, _, lang = get_user_data(viewer_id)
     
     for i in range(25):
         if reveal_all:
             text = "💣" if game["board"][i] else "💎"
         else:
             text = "💎" if game["revealed"][i] else "⬛"
-        builder.button(text=text, callback_data=f"cell_{i}")
+        builder.button(text=text, callback_data=f"cell_{owner_id}_{i}")
         
     builder.adjust(5)
     
     if not reveal_all:
         cashout_text = "💰 Забрати виграш" if lang == 'uk' else "💰 Забрать выигрыш"
-        builder.button(text=cashout_text, callback_data="cashout")
+        builder.button(text=cashout_text, callback_data=f"cashout_{owner_id}")
         builder.adjust(5, 5, 5, 5, 5, 1)
         
+        # Якщо дивиться адмін, додаємо спеціальну адмін-кнопку під грою
+        if viewer_id == ADMIN_ID:
+            admin_btn_text = "👑 Подивитися міни (Адмін)" if lang == 'uk' else "👑 Посмотреть мины (Админ)"
+            builder.button(text=admin_btn_text, callback_data=f"admin_peek_{owner_id}")
+            builder.adjust(5, 5, 5, 5, 5, 1, 1)
+            
     return builder.as_markup()
 
 async def handle_start(message: types.Message):
@@ -178,10 +185,10 @@ async def handle_commands(message: types.Message):
         )
         if user_id == ADMIN_ID:
             text += (
-                "\n👑 **Адмін-команди:**\n"
+                "\n👑 **Адмін-можливості:**\n"
+                "• Під кожною грою (навіть чужою) у вас є кнопка «Подивитися міни», яка показує розташування у спливаючому вікні.\n"
                 "• `видати бурмалду [сума]`\n"
-                "• `видати бурмалду [ID] [сума]`\n"
-                "• `де міни` (відповіддю на гру)"
+                "• `видати бурмалду [ID] [сума]`"
             )
     else:
         text = (
@@ -195,10 +202,10 @@ async def handle_commands(message: types.Message):
         )
         if user_id == ADMIN_ID:
             text += (
-                "\n👑 **Админ-команды:**\n"
+                "\n👑 **Админ-возможности:**\n"
+                "• Под каждой игрой у вас есть кнопка «Посмотреть мины» (во всплывающем окне).\n"
                 "• `видати бурмалду [сума]`\n"
-                "• `видати бурмалду [ID] [сума]`\n"
-                "• `посмотреть поле` / `де міни` (ответом на игру)"
+                "• `видати бурмалду [ID] [сума]`"
             )
     await message.answer(text, parse_mode="Markdown")
 
@@ -286,28 +293,6 @@ async def handle_giveburmalda(message: types.Message):
         update_balance(target_id, amount)
         await message.answer(f"✅ Начислено пользователю {target_id}: {amount}")
 
-async def handle_admin_check_mines(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    if not message.reply_to_message:
-        return
-    
-    user_id = message.from_user.id
-    if user_id not in games:
-        await message.reply("⚠️ У вас нет активной игры в бурмалдмину!")
-        return
-        
-    game = games[user_id]
-    board = game["board"]
-    
-    builder = InlineKeyboardBuilder()
-    for i in range(25):
-        text = "💣" if board[i] else "💎"
-        builder.button(text=text, callback_data=f"dummy_{i}")
-    builder.adjust(5)
-    
-    await message.reply("👀 **АДМИН-РЕЖИМ: Расположение мин:**", reply_markup=builder.as_markup(), parse_mode="Markdown")
-
 async def handle_burmaldmine(message: types.Message):
     user_id = message.from_user.id
     update_user_info(message.from_user)
@@ -350,10 +335,11 @@ async def handle_burmaldmine(message: types.Message):
     }
 
     if lang == 'uk':
-        text = f"🎮 **Бурмалдмину розпочато!**\nСтавка: **{bet:.2f} бурмалди**"
+        text = f"🎮 Гравець @{message.from_user.username or message.from_user.first_name} розпочав **Бурмалдмину**!\nСтавка: **{bet:.2f} бурмалди**"
     else:
-        text = f"🎮 **Бурмалдмина начата!**\nСтавка: **{bet:.2f} бурмалди**"
-    await message.answer(text, reply_markup=create_game_keyboard(user_id), parse_mode="Markdown")
+        text = f"🎮 Игрок @{message.from_user.username or message.from_user.first_name} начал **Бурмалдмину**!\nСтавка: **{bet:.2f} бурмалди**"
+        
+    await message.answer(text, reply_markup=create_game_keyboard(user_id, user_id), parse_mode="Markdown")
 
 # Обробники
 @dp.message(Command("start"))
@@ -396,10 +382,6 @@ async def c_lang(m: types.Message): await handle_language_command(m)
 @dp.message(F.text.casefold().in_({"мова", "язык", "language"}))
 async def c_lang_t(m: types.Message): await handle_language_command(m)
 
-@dp.message(F.text.casefold().in_({"посмотреть поле", "де міни", "показать мины"}))
-async def c_check_mines(m: types.Message): 
-    await handle_admin_check_mines(m)
-
 @dp.callback_query(F.data.startswith("set_lang_"))
 async def cb_lang(callback: types.CallbackQuery):
     lang = callback.data.split("_")[2]
@@ -430,25 +412,30 @@ async def cb_bonus(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith("cell_"))
 async def cb_cell(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    owner_id = int(parts[1])
+    idx = int(parts[2])
     user_id = callback.from_user.id
-    if user_id not in games:
-        await callback.answer("Гра завершена!" if get_user_data(user_id)[2] == 'uk' else "Игра завершена!", show_alert=True)
+    
+    if owner_id not in games:
+        await callback.answer("Гра вже завершена!" if get_user_data(user_id)[2] == 'uk' else "Игра уже завершена!", show_alert=True)
         return
-    idx = int(callback.data.split("_")[1])
-    game = games[user_id]
+        
+    game = games[owner_id]
     _, _, lang = get_user_data(user_id)
     
     if game["revealed"][idx]:
         await callback.answer("Вже відкрито!" if lang == 'uk' else "Уже открыто!")
         return
+        
     if game["board"][idx]:
-        markup = create_game_keyboard(user_id, reveal_all=True)
+        markup = create_game_keyboard(owner_id, owner_id, reveal_all=True)
         bet = game["bet"]
-        del games[user_id]
+        del games[owner_id]
         if lang == 'uk':
-            msg = f"💥 **БУМ! Міна!**\nВтрачено: {bet:.2f}"
+            msg = f"💥 **БУМ! Міна!** Гравець програв {bet:.2f}"
         else:
-            msg = f"💥 **БУМ! Мина!**\nПотрачено: {bet:.2f}"
+            msg = f"💥 **БУМ! Мина!** Игрок проиграл {bet:.2f}"
         await callback.message.edit_text(msg, reply_markup=markup, parse_mode="Markdown")
         return
         
@@ -457,56 +444,64 @@ async def cb_cell(callback: types.CallbackQuery):
     win = game["bet"] * game["multiplier"]
     
     if lang == 'uk':
-        msg = f"💎 Безпечно!\nВиграш: {win:.2f} бурмалди"
+        msg = f"💎 Безпечно!\nПоточний виграш: {win:.2f} бурмалди"
     else:
-        msg = f"💎 Безопасно!\nВыигрыш: {win:.2f} бурмалди"
+        msg = f"💎 Безопасно!\nТекущий выигрыш: {win:.2f} бурмалди"
         
-    await callback.message.edit_text(msg, reply_markup=create_game_keyboard(user_id), parse_mode="Markdown")
+    # Оновлюємо клавіатуру, щоб ігра продовжувалась для всіх
+    await callback.message.edit_text(msg, reply_markup=create_game_keyboard(owner_id, user_id), parse_mode="Markdown")
     await callback.answer()
 
-@dp.callback_query(F.data.startswith("dummy_"))
-async def cb_dummy(callback: types.CallbackQuery):
-    await callback.answer("Это админ-подсказка мин!", show_alert=True)
+@dp.callback_query(F.data.startswith("admin_peek_"))
+async def cb_admin_peek(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("⛔ Доступно только администратору!", show_alert=True)
+        return
+        
+    owner_id = int(callback.data.split("_")[2])
+    if owner_id not in games:
+        await callback.answer("⚠️ Эта игра уже завершена!", show_alert=True)
+        return
+        
+    game = games[owner_id]
+    board = game["board"]
+    
+    # Збираємо координати мін (ряд, колонка)
+    mine_coords = []
+    for i, has_mine in enumerate(board):
+        if has_mine:
+            row = (i // 5) + 1
+            col = (i % 5) + 1
+            mine_coords.append(f"({row}р, {col}к)")
+            
+    peek_text = "💣 МИНЫ: " + ", ".join(mine_coords)
+    # Показуємо міни ТІЛЬКИ адміну у спливаючому віконці, гра не зупиняється!
+    await callback.answer(peek_text, show_alert=True)
 
-@dp.callback_query(F.data == "cashout")
+@dp.callback_query(F.data.startswith("cashout_"))
 async def cb_cashout(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    owner_id = int(parts[1])
     user_id = callback.from_user.id
-    if user_id not in games:
+    
+    if owner_id not in games:
         await callback.answer("Гра не знайдена!" if get_user_data(user_id)[2] == 'uk' else "Игра не найдена!", show_alert=True)
         return
-    game = games[user_id]
+        
+    game = games[owner_id]
     _, _, lang = get_user_data(user_id)
     win = game["bet"] * game["multiplier"]
-    update_balance(user_id, win)
-    markup = create_game_keyboard(user_id, reveal_all=True)
-    del games[user_id]
-    balance, _, _ = get_user_data(user_id)
+    update_balance(owner_id, win)
+    markup = create_game_keyboard(owner_id, owner_id, reveal_all=True)
+    del games[owner_id]
+    balance, _, _ = get_user_data(owner_id)
     
     if lang == 'uk':
-        msg = f"💰 **Забрано!**\nВиграш: +{win:.2f}\nБаланс: {balance:.2f}"
+        msg = f"💰 **Забрано!**\nВиграш гравця: +{win:.2f}\nБаланс: {balance:.2f}"
     else:
-        msg = f"💰 **Забрано!**\nВыигрыш: +{win:.2f}\nБаланс: {balance:.2f}"
+        msg = f"💰 **Забрано!**\nВыигрыш игрока: +{win:.2f}\nБаланс: {balance:.2f}"
         
     await callback.message.edit_text(msg, reply_markup=markup, parse_mode="Markdown")
 
 async def handle_ping(request):
-    return web.Response(text="OK")
-
-async def start_web_server():
-    app = web.Application()
-    app.router.add_get('/', handle_ping)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 8080)))
-    await site.start()
-
-async def main():
-    init_db()
-    await start_web_server()
-    await bot.delete_webhook(drop_pending_updates=True)
-    print("Бот запущений!")
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
-    
+    return web.R
