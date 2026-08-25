@@ -180,7 +180,7 @@ async def handle_commands(message: types.Message):
             "🔹 **мова** — Змінити мову інтерфейсу\n"
         )
         if user_id == ADMIN_ID:
-            text += "\n👑 Під кожною грою є кнопка «Подивитися міни (ЛС)», яка надсилає поле вам у особисті повідомлення."
+            text += "\n👑 **Адмін-команди:**\n🔹 `видати бурмалду [сума]` або `/giveburmalda [сума]`\n🔹 Кнопка під грою для перегляду мін у ЛС."
     else:
         text = (
             "📜 **Список команд бота:**\n\n"
@@ -192,7 +192,7 @@ async def handle_commands(message: types.Message):
             "🔹 **мова** — Изменить язык интерфейса\n"
         )
         if user_id == ADMIN_ID:
-            text += "\n👑 Под каждой игрой есть кнопка «Посмотреть мины (ЛС)», отправляющая поле вам в личные сообщения."
+            text += "\n👑 **Админ-команды:**\n🔹 `видати бурмалду [сума]` / `видать бурмалду [сумма]` или `/giveburmalda [сумма]`\n🔹 Кнопка под игрой для просмотра мин в ЛС."
     await message.answer(text, parse_mode="Markdown")
 
 async def handle_balance(message: types.Message):
@@ -216,7 +216,7 @@ async def handle_top(message: types.Message):
         text += f"{medal} **{name}** — {balance:.2f} бурмалди\n"
     await message.answer(text, parse_mode="Markdown")
 
-async def handle_give_burmalda(message: types.Message):
+async def handle_transfer(message: types.Message):
     update_user_info(message.from_user)
     _, _, lang = get_user_data(message.from_user.id)
     if not message.reply_to_message:
@@ -269,15 +269,25 @@ async def handle_giveburmalda(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         return
     args = message.text.split()
-    if len(args) == 2:
-        amount = float(args[1])
-        update_balance(message.from_user.id, amount)
-        await message.answer(f"✅ Начислено себе {amount}")
-    elif len(args) >= 3 and args[1].isdigit():
-        target_id = int(args[1])
-        amount = float(args[2])
-        update_balance(target_id, amount)
-        await message.answer(f"✅ Начислено пользователю {target_id}: {amount}")
+    if len(args) >= 3 and args[-1].replace('.', '', 1).isdigit():
+        try:
+            target_id = int(args[1])
+            amount = float(args[2])
+            update_balance(target_id, amount)
+            await message.answer(f"✅ Начислено пользователю {target_id}: {amount}")
+            return
+        except ValueError:
+            pass
+
+    for part in args:
+        try:
+            amount = float(part)
+            update_balance(message.from_user.id, amount)
+            await message.answer(f"✅ Начислено себе: {amount}")
+            return
+        except ValueError:
+            continue
+    await message.answer("❌ Ошибка! Пример: `видати бурмалду 500`")
 
 async def handle_burmaldmine(message: types.Message):
     user_id = message.from_user.id
@@ -349,13 +359,13 @@ async def c_top_t(m: types.Message): await handle_top(m)
 
 @dp.message(Command("giveburmalda"))
 async def c_gb(m: types.Message): await handle_giveburmalda(m)
-@dp.message(F.text.casefold().startswith(("видати бурмалду", "видатибурмалду", "giveburmalda")))
+@dp.message(F.text.casefold().startswith(("видати бурмалду", "видатибурмалду", "видать бурмалду", "видатьбурмалду", "giveburmalda")))
 async def c_gb_t(m: types.Message): await handle_giveburmalda(m)
 
 @dp.message(Command("передати"))
-async def c_per(m: types.Message): await handle_give_burmalda(m)
+async def c_per(m: types.Message): await handle_transfer(m)
 @dp.message(F.text.casefold().startswith("передати"))
-async def c_per_t(m: types.Message): await handle_give_burmalda(m)
+async def c_per_t(m: types.Message): await handle_transfer(m)
 
 @dp.message(Command("burmaldmine"))
 async def c_mine(m: types.Message): await handle_burmaldmine(m)
@@ -449,7 +459,6 @@ async def cb_admin_peek(callback: types.CallbackQuery):
         
     game = games[owner_id]
     
-    # Створюємо сітку з відкритими мінами та алмазами (як у кінці гри)
     builder = InlineKeyboardBuilder()
     for i in range(25):
         text = "💣" if game["board"][i] else "💎"
@@ -457,14 +466,13 @@ async def cb_admin_peek(callback: types.CallbackQuery):
     builder.adjust(5)
     
     try:
-        # Надсилаємо повноцінне поле ТІЛЬКИ ВАМ У ЛС
         await bot.send_message(
             ADMIN_ID,
             f"👀 **АДМИН-РЕЖИМ (Расположение мин для игрока ID: {owner_id}):**",
             reply_markup=builder.as_markup(),
             parse_mode="Markdown"
         )
-        await callback.answer("✅ Поле с мінами надіслано вам у особисті повідомлення (ЛС)!", show_alert=True)
+        await callback.answer("✅ Поле з мінами надіслано вам у особисті повідомлення (ЛС)!", show_alert=True)
     except Exception:
         await callback.answer("⚠️ Спочатку натисніть /start у особистих повідомленнях з ботом!", show_alert=True)
 
@@ -495,10 +503,4 @@ async def cb_cashout(callback: types.CallbackQuery):
 
 async def main():
     init_db()
-    await bot.delete_webhook(drop_pending_updates=True)
-    print("Бот запущений!")
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
-    
+    await bot.delete_webhook
