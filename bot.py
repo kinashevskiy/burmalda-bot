@@ -100,7 +100,7 @@ def get_balance_text_and_markup(user_id: int):
     if lang == 'uk':
         text = f"💵 Ваш поточний баланс: **{balance:.2f} бурмалди**"
     else:
-        text = f"💵 Ваш текущий баланс: **{balance:.2f} бурмалды**"
+        text = f"💵 Ваш текущий баланс: **{balance:.2f} бурмалди**"
     
     builder = InlineKeyboardBuilder()
     if is_bonus_ready:
@@ -121,6 +121,7 @@ games = {}
 def create_game_keyboard(user_id: int, reveal_all=False):
     builder = InlineKeyboardBuilder()
     game = games.get(user_id)
+    _, _, lang = get_user_data(user_id)
     
     for i in range(25):
         if reveal_all:
@@ -132,7 +133,8 @@ def create_game_keyboard(user_id: int, reveal_all=False):
     builder.adjust(5)
     
     if not reveal_all:
-        builder.button(text="💰 Забрати виграш", callback_data="cashout")
+        cashout_text = "💰 Забрати виграш" if lang == 'uk' else "💰 Забрать выигрыш"
+        builder.button(text=cashout_text, callback_data="cashout")
         builder.adjust(5, 5, 5, 5, 5, 1)
         
     return builder.as_markup()
@@ -161,7 +163,9 @@ async def handle_language_command(message: types.Message):
     await message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
 
 async def handle_commands(message: types.Message):
-    _, _, lang = get_user_data(message.from_user.id)
+    user_id = message.from_user.id
+    _, _, lang = get_user_data(user_id)
+    
     if lang == 'uk':
         text = (
             "📜 **Список команд бота:**\n\n"
@@ -170,11 +174,15 @@ async def handle_commands(message: types.Message):
             "🔹 **бурмалдмина [ставка]** — Грати в бурмалдмину\n"
             "🔹 **топ** — Таблиця лідерів\n"
             "🔹 **передати [сума]** — Передати бурмалди через відповідь на повідомлення\n"
-            "🔹 **мова** — Змінити мову інтерфейсу\n\n"
-            "👑 **Адмін-команди:**\n"
-            "• `видатибурмалду [сума]`\n"
-            "• `видатибурмалду [ID] [сума]`"
+            "🔹 **мова** — Змінити мову інтерфейсу\n"
         )
+        if user_id == ADMIN_ID:
+            text += (
+                "\n👑 **Адмін-команди:**\n"
+                "• `видати бурмалду [сума]`\n"
+                "• `видати бурмалду [ID] [сума]`\n"
+                "• `де міни` (відповіддю на гру)"
+            )
     else:
         text = (
             "📜 **Список команд бота:**\n\n"
@@ -183,11 +191,15 @@ async def handle_commands(message: types.Message):
             "🔹 **бурмалдмина [ставка]** — Играть в бурмалдмину\n"
             "🔹 **топ** — Таблица лидеров\n"
             "🔹 **передати [сумма]** — Передать бурмалды через ответ на сообщение\n"
-            "🔹 **мова** — Изменить язык интерфейса\n\n"
-            "👑 **Админ-команды:**\n"
-            "• `видатибурмалду [сума]`\n"
-            "• `видатибурмалду [ID] [сума]`"
+            "🔹 **мова** — Изменить язык интерфейса\n"
         )
+        if user_id == ADMIN_ID:
+            text += (
+                "\n👑 **Админ-команды:**\n"
+                "• `видати бурмалду [сума]`\n"
+                "• `видати бурмалду [ID] [сума]`\n"
+                "• `посмотреть поле` / `де міни` (ответом на игру)"
+            )
     await message.answer(text, parse_mode="Markdown")
 
 async def handle_balance(message: types.Message):
@@ -196,15 +208,18 @@ async def handle_balance(message: types.Message):
     await message.answer(text, reply_markup=markup, parse_mode="Markdown")
 
 async def handle_top(message: types.Message):
+    _, _, lang = get_user_data(message.from_user.id)
     leaders = get_top_leaders()
     if not leaders:
-        await message.answer("🏆 Таблиця лідерів порожня!")
+        msg = "🏆 Таблиця лідерів порожня!" if lang == 'uk' else "🏆 Таблица лидеров пуста!"
+        await message.answer(msg)
         return
-    text = "🏆 **Таблиця лідерів:**\n\n"
+    text = "🏆 **Таблиця лідерів:**\n\n" if lang == 'uk' else "🏆 **Таблица лидеров:**\n\n"
     medals = ["🥇", "🥈", "🥉"]
     for idx, (first_name, username, balance) in enumerate(leaders, 1):
         medal = medals[idx - 1] if idx <= 3 else f"{idx}."
-        name = f"@{username}" if username else (first_name or "Гравець")
+        default_name = "Гравець" if lang == 'uk' else "Игрок"
+        name = f"@{username}" if username else (first_name or default_name)
         text += f"{medal} **{name}** — {balance:.2f} бурмалди\n"
     await message.answer(text, parse_mode="Markdown")
 
@@ -221,7 +236,8 @@ async def handle_give_burmalda(message: types.Message):
     target_id = target_user.id
 
     if sender_id == target_id or target_user.is_bot:
-        await message.reply("❌ Помилка передачі!")
+        err_msg = "❌ Помилка передачі!" if lang == 'uk' else "❌ Ошибка передачи!"
+        await message.reply(err_msg)
         return
 
     update_user_info(target_user)
@@ -237,19 +253,24 @@ async def handle_give_burmalda(message: types.Message):
             continue
 
     if not amount:
-        await message.reply("❌ Вкажіть суму. Приклад: `передати 50`", parse_mode="Markdown")
+        err_sum = "❌ Вкажіть суму. Приклад: `передати 50`" if lang == 'uk' else "❌ Укажите сумму. Пример: `передати 50`"
+        await message.reply(err_sum, parse_mode="Markdown")
         return
 
     sender_balance, _, _ = get_user_data(sender_id)
     if sender_balance < amount:
-        await message.reply("❌ Недостатньо коштів!")
+        low_msg = "❌ Недостатньо коштів!" if lang == 'uk' else "❌ Недостаточно средств!"
+        await message.reply(low_msg)
         return
 
     update_balance(sender_id, -amount)
     update_balance(target_id, amount)
     new_balance, _, _ = get_user_data(sender_id)
     
-    await message.reply(f"✅ Передано **{amount:.2f} бурмалди**!\nБаланс: **{new_balance:.2f} бурмалди**", parse_mode="Markdown")
+    if lang == 'uk':
+        await message.reply(f"✅ Передано **{amount:.2f} бурмалди**!\nБаланс: **{new_balance:.2f} бурмалди**", parse_mode="Markdown")
+    else:
+        await message.reply(f"✅ Переведено **{amount:.2f} бурмалди**!\nБаланс: **{new_balance:.2f} бурмалди**", parse_mode="Markdown")
 
 async def handle_giveburmalda(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -258,12 +279,34 @@ async def handle_giveburmalda(message: types.Message):
     if len(args) == 2:
         amount = float(args[1])
         update_balance(message.from_user.id, amount)
-        await message.answer(f"✅ Нараховано собі {amount}")
+        await message.answer(f"✅ Начислено себе {amount}")
     elif len(args) >= 3 and args[1].isdigit():
         target_id = int(args[1])
         amount = float(args[2])
         update_balance(target_id, amount)
-        await message.answer(f"✅ Нараховано користувачу {target_id}: {amount}")
+        await message.answer(f"✅ Начислено пользователю {target_id}: {amount}")
+
+async def handle_admin_check_mines(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    if not message.reply_to_message:
+        return
+    
+    user_id = message.from_user.id
+    if user_id not in games:
+        await message.reply("⚠️ У вас нет активной игры в бурмалдмину!")
+        return
+        
+    game = games[user_id]
+    board = game["board"]
+    
+    builder = InlineKeyboardBuilder()
+    for i in range(25):
+        text = "💣" if board[i] else "💎"
+        builder.button(text=text, callback_data=f"dummy_{i}")
+    builder.adjust(5)
+    
+    await message.reply("👀 **АДМИН-РЕЖИМ: Расположение мин:**", reply_markup=builder.as_markup(), parse_mode="Markdown")
 
 async def handle_burmaldmine(message: types.Message):
     user_id = message.from_user.id
@@ -271,23 +314,27 @@ async def handle_burmaldmine(message: types.Message):
     _, _, lang = get_user_data(user_id)
     
     if user_id in games:
-        await message.answer("⚠️ Активна гра вже є!")
+        msg = "⚠️ Активна гра вже є!" if lang == 'uk' else "⚠️ Активная игра уже есть!"
+        await message.answer(msg)
         return
 
     args = message.text.split()
     if len(args) < 2:
-        await message.answer("❌ Вкажіть ставку: `бурмалдмина 50`", parse_mode="Markdown")
+        msg = "❌ Вкажіть ставку: `бурмалдмина 50`" if lang == 'uk' else "❌ Укажите ставку: `бурмалдмина 50`"
+        await message.answer(msg, parse_mode="Markdown")
         return
 
     try:
         bet = float(args[1])
     except ValueError:
-        await message.answer("❌ Некоректна ставка!")
+        msg = "❌ Некоректна ставка!" if lang == 'uk' else "❌ Некорректная ставка!"
+        await message.answer(msg)
         return
 
     balance, _, _ = get_user_data(user_id)
     if bet <= 0 or bet > balance:
-        await message.answer("❌ Недостатньо бурмалди або ставка ≤ 0!")
+        msg = "❌ Недостатньо бурмалди або ставка ≤ 0!" if lang == 'uk' else "❌ Недостаточно бурмалди или ставка ≤ 0!"
+        await message.answer(msg)
         return
 
     update_balance(user_id, -bet)
@@ -302,7 +349,10 @@ async def handle_burmaldmine(message: types.Message):
         "revealed": [False] * 25
     }
 
-    text = f"🎮 **Бурмалдмину розпочато!**\nСтавка: **{bet:.2f} бурмалди**"
+    if lang == 'uk':
+        text = f"🎮 **Бурмалдмину розпочато!**\nСтавка: **{bet:.2f} бурмалди**"
+    else:
+        text = f"🎮 **Бурмалдмина начата!**\nСтавка: **{bet:.2f} бурмалди**"
     await message.answer(text, reply_markup=create_game_keyboard(user_id), parse_mode="Markdown")
 
 # Обробники
@@ -328,7 +378,7 @@ async def c_top_t(m: types.Message): await handle_top(m)
 
 @dp.message(Command("giveburmalda"))
 async def c_gb(m: types.Message): await handle_giveburmalda(m)
-@dp.message(F.text.casefold().startswith(("видатибурмалду", "giveburmalda")))
+@dp.message(F.text.casefold().startswith(("видати бурмалду", "видатибурмалду", "giveburmalda")))
 async def c_gb_t(m: types.Message): await handle_giveburmalda(m)
 
 @dp.message(Command("передати"))
@@ -346,6 +396,10 @@ async def c_lang(m: types.Message): await handle_language_command(m)
 @dp.message(F.text.casefold().in_({"мова", "язык", "language"}))
 async def c_lang_t(m: types.Message): await handle_language_command(m)
 
+@dp.message(F.text.casefold().in_({"посмотреть поле", "де міни", "показать мины"}))
+async def c_check_mines(m: types.Message): 
+    await handle_admin_check_mines(m)
+
 @dp.callback_query(F.data.startswith("set_lang_"))
 async def cb_lang(callback: types.CallbackQuery):
     lang = callback.data.split("_")[2]
@@ -359,7 +413,8 @@ async def cb_bonus(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     _, last_bonus, lang = get_user_data(user_id)
     if not check_bonus_available(last_bonus):
-        await callback.answer("⏳ Рано!", show_alert=True)
+        msg = "⏳ Рано!" if lang == 'uk' else "⏳ Рано!"
+        await callback.answer(msg, show_alert=True)
         return
     update_balance(user_id, 500)
     conn = sqlite3.connect("burmalda.db")
@@ -367,7 +422,9 @@ async def cb_bonus(callback: types.CallbackQuery):
     cursor.execute("UPDATE users SET last_bonus = ? WHERE user_id = ?", (datetime.now().isoformat(), user_id))
     conn.commit()
     conn.close()
-    await callback.answer("🎉 Бонус отримано (+500)!", show_alert=False)
+    
+    alert_msg = "🎉 Бонус отримано (+500)!" if lang == 'uk' else "🎉 Бонус получен (+500)!"
+    await callback.answer(alert_msg, show_alert=False)
     text, markup = get_balance_text_and_markup(user_id)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="Markdown")
 
@@ -375,38 +432,62 @@ async def cb_bonus(callback: types.CallbackQuery):
 async def cb_cell(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     if user_id not in games:
-        await callback.answer("Гра завершена!", show_alert=True)
+        await callback.answer("Гра завершена!" if get_user_data(user_id)[2] == 'uk' else "Игра завершена!", show_alert=True)
         return
     idx = int(callback.data.split("_")[1])
     game = games[user_id]
+    _, _, lang = get_user_data(user_id)
+    
     if game["revealed"][idx]:
-        await callback.answer("Вже відкрито!")
+        await callback.answer("Вже відкрито!" if lang == 'uk' else "Уже открыто!")
         return
     if game["board"][idx]:
         markup = create_game_keyboard(user_id, reveal_all=True)
         bet = game["bet"]
         del games[user_id]
-        await callback.message.edit_text(f"💥 **БУМ! Міна!**\nВтрачено: {bet:.2f}", reply_markup=markup, parse_mode="Markdown")
+        if lang == 'uk':
+            msg = f"💥 **БУМ! Міна!**\nВтрачено: {bet:.2f}"
+        else:
+            msg = f"💥 **БУМ! Мина!**\nПотрачено: {bet:.2f}"
+        await callback.message.edit_text(msg, reply_markup=markup, parse_mode="Markdown")
         return
+        
     game["revealed"][idx] = True
     game["multiplier"] += 0.25
     win = game["bet"] * game["multiplier"]
-    await callback.message.edit_text(f"💎 Безпечно!\nВиграш: {win:.2f} бурмалди", reply_markup=create_game_keyboard(user_id), parse_mode="Markdown")
+    
+    if lang == 'uk':
+        msg = f"💎 Безпечно!\nВиграш: {win:.2f} бурмалди"
+    else:
+        msg = f"💎 Безопасно!\nВыигрыш: {win:.2f} бурмалди"
+        
+    await callback.message.edit_text(msg, reply_markup=create_game_keyboard(user_id), parse_mode="Markdown")
     await callback.answer()
+
+@dp.callback_query(F.data.startswith("dummy_"))
+async def cb_dummy(callback: types.CallbackQuery):
+    await callback.answer("Это админ-подсказка мин!", show_alert=True)
 
 @dp.callback_query(F.data == "cashout")
 async def cb_cashout(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     if user_id not in games:
-        await callback.answer("Гра не знайдена!", show_alert=True)
+        await callback.answer("Гра не знайдена!" if get_user_data(user_id)[2] == 'uk' else "Игра не найдена!", show_alert=True)
         return
     game = games[user_id]
+    _, _, lang = get_user_data(user_id)
     win = game["bet"] * game["multiplier"]
     update_balance(user_id, win)
     markup = create_game_keyboard(user_id, reveal_all=True)
     del games[user_id]
     balance, _, _ = get_user_data(user_id)
-    await callback.message.edit_text(f"💰 **Забрано!**\nВиграш: +{win:.2f}\nБаланс: {balance:.2f}", reply_markup=markup, parse_mode="Markdown")
+    
+    if lang == 'uk':
+        msg = f"💰 **Забрано!**\nВиграш: +{win:.2f}\nБаланс: {balance:.2f}"
+    else:
+        msg = f"💰 **Забрано!**\nВыигрыш: +{win:.2f}\nБаланс: {balance:.2f}"
+        
+    await callback.message.edit_text(msg, reply_markup=markup, parse_mode="Markdown")
 
 async def handle_ping(request):
     return web.Response(text="OK")
